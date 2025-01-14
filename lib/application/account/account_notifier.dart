@@ -2,7 +2,6 @@
 
 import 'dart:async';
 
-import 'package:aewallet/application/account/selected_account.dart';
 import 'package:aewallet/application/app_service.dart';
 import 'package:aewallet/application/nft/nft.dart';
 import 'package:aewallet/application/refresh_in_progress.dart';
@@ -13,7 +12,6 @@ import 'package:aewallet/model/data/account.dart';
 import 'package:aewallet/model/data/account_balance.dart';
 import 'package:aewallet/modules/aeswap/application/pool/dex_pool.dart';
 import 'package:aewallet/modules/aeswap/application/session/provider.dart';
-import 'package:aewallet/util/account_formatters.dart';
 import 'package:archethic_dapp_framework_flutter/archethic_dapp_framework_flutter.dart'
     as aedappfm;
 import 'package:archethic_lib_dart/archethic_lib_dart.dart';
@@ -58,23 +56,23 @@ class AccountNotifier extends _$AccountNotifier {
   Future<void> refreshRecentTransactions() async {
     await _refresh([
       (account) async {
-        _logger.fine(
-          'Start method refreshRecentTransactions for ${account.nameDisplayed}',
-        );
         await updateRecentTransactions();
-        _logger.fine(
-          'End method refreshRecentTransactions for ${account.nameDisplayed}',
-        );
       },
     ]);
-
-    ref.invalidate(selectedAccountRecentTransactionsProvider);
   }
 
   Future<void> refreshFungibleTokens() async {
     await _refresh([
       (account) async {
         await updateFungiblesTokens();
+      },
+    ]);
+  }
+
+  Future<void> refreshNFT() async {
+    await _refresh([
+      (account) async {
+        await updateNFT();
       },
     ]);
   }
@@ -91,153 +89,153 @@ class AccountNotifier extends _$AccountNotifier {
     await _refresh(
       [
         (account) async {
-          _logger.fine('RefreshAll - Start Balance refresh');
           await updateBalance();
-          _logger.fine('RefreshAll - End Balance refresh');
         },
         (account) async {
-          _logger.fine('RefreshAll - Start recent transactions refresh');
           await updateRecentTransactions();
-          _logger.fine('RefreshAll - End recent transactions refresh');
         },
         (account) async {
-          _logger.fine('RefreshAll - Start Fungible Tokens refresh');
           await updateFungiblesTokens();
-          _logger.fine('RefreshAll - End Fungible Tokens refresh');
         },
         (account) async {
-          _logger.fine('RefreshAll - Start NFT refresh');
           await updateNFT();
-          _logger.fine('RefreshAll - End NFT refresh');
         },
       ],
     );
   }
 
   Future<void> updateBalance() async {
-    final account = await future;
-    if (account == null) return;
+    _logger.fine('RefreshAll - Start Balance refresh');
+    await _update((account) async {
+      var totalUSD = 0.0;
 
-    var totalUSD = 0.0;
+      final balanceGetResponseMap = await ref
+          .read(appServiceProvider)
+          .getBalanceGetResponse([account.genesisAddress]);
 
-    final balanceGetResponseMap = await ref
-        .read(appServiceProvider)
-        .getBalanceGetResponse([account.genesisAddress]);
+      if (balanceGetResponseMap[account.genesisAddress] == null) {
+        return account;
+      }
 
-    if (balanceGetResponseMap[account.genesisAddress] == null) {
-      return;
-    }
-
-    final ucidsTokens = await ref.read(
-      aedappfm.UcidsTokensProviders.ucidsTokens(
-        environment: ref.read(environmentProvider),
-      ).future,
-    );
-
-    final cryptoPrice = ref.read(aedappfm.CoinPriceProviders.coinPrices);
-
-    final balanceGetResponse = balanceGetResponseMap[account.genesisAddress]!;
-    final ucoAmount = fromBigInt(balanceGetResponse.uco).toDouble();
-    final accountBalance = AccountBalance(
-      nativeTokenName: AccountBalance.cryptoCurrencyLabel,
-      nativeTokenValue: ucoAmount,
-    );
-
-    if (balanceGetResponse.uco > 0) {
-      accountBalance.tokensFungiblesNb++;
-
-      final archethicOracleUCO = await ref.read(
-        aedappfm.ArchethicOracleUCOProviders.archethicOracleUCO.future,
+      final ucidsTokens = await ref.read(
+        aedappfm.UcidsTokensProviders.ucidsTokens(
+          environment: ref.read(environmentProvider),
+        ).future,
       );
-      totalUSD = (Decimal.parse(totalUSD.toString()) +
-              Decimal.parse(ucoAmount.toString()) *
-                  Decimal.parse(archethicOracleUCO.usd.toString()))
-          .toDouble();
-    }
 
-    for (final token in balanceGetResponse.token) {
-      if (token.tokenId != null) {
-        if (token.tokenId == 0) {
-          accountBalance.tokensFungiblesNb++;
+      final cryptoPrice = ref.read(aedappfm.CoinPriceProviders.coinPrices);
 
-          final ucidsToken = ucidsTokens[token.address];
-          if (ucidsToken != null && ucidsToken != 0) {
-            final amountTokenUSD =
-                (Decimal.parse(fromBigInt(token.amount).toString()) *
-                        Decimal.parse(
-                          aedappfm.CoinPriceRepositoryImpl()
-                              .getPriceFromUcid(ucidsToken, cryptoPrice)
-                              .toString(),
-                        ))
-                    .toDouble();
-            totalUSD = totalUSD + amountTokenUSD;
+      final balanceGetResponse = balanceGetResponseMap[account.genesisAddress]!;
+      final ucoAmount = fromBigInt(balanceGetResponse.uco).toDouble();
+      final accountBalance = AccountBalance(
+        nativeTokenName: AccountBalance.cryptoCurrencyLabel,
+        nativeTokenValue: ucoAmount,
+      );
+
+      if (balanceGetResponse.uco > 0) {
+        accountBalance.tokensFungiblesNb++;
+
+        final archethicOracleUCO = await ref.read(
+          aedappfm.ArchethicOracleUCOProviders.archethicOracleUCO.future,
+        );
+        totalUSD = (Decimal.parse(totalUSD.toString()) +
+                Decimal.parse(ucoAmount.toString()) *
+                    Decimal.parse(archethicOracleUCO.usd.toString()))
+            .toDouble();
+      }
+
+      for (final token in balanceGetResponse.token) {
+        if (token.tokenId != null) {
+          if (token.tokenId == 0) {
+            accountBalance.tokensFungiblesNb++;
+
+            final ucidsToken = ucidsTokens[token.address];
+            if (ucidsToken != null && ucidsToken != 0) {
+              final amountTokenUSD =
+                  (Decimal.parse(fromBigInt(token.amount).toString()) *
+                          Decimal.parse(
+                            aedappfm.CoinPriceRepositoryImpl()
+                                .getPriceFromUcid(ucidsToken, cryptoPrice)
+                                .toString(),
+                          ))
+                      .toDouble();
+              totalUSD = totalUSD + amountTokenUSD;
+            }
+          } else {
+            accountBalance.nftNb++;
           }
-        } else {
-          accountBalance.nftNb++;
         }
       }
-    }
-    accountBalance.totalUSD = totalUSD;
+      accountBalance.totalUSD = totalUSD;
 
-    account.balance = accountBalance;
-    await updateAccount();
+      return account.copyWith(balance: accountBalance);
+    });
+    _logger.fine('RefreshAll - End Balance refresh');
   }
 
   Future<void> updateFungiblesTokens() async {
-    final account = await future;
-    if (account == null) {
-      return;
-    }
-    final appService = ref.read(appServiceProvider);
-    final poolsListRaw = await ref.read(DexPoolProviders.getPoolListRaw.future);
+    _logger.fine('RefreshAll - Start Fungible Tokens refresh');
+    await _update((account) async {
+      final appService = ref.read(appServiceProvider);
+      final poolsListRaw =
+          await ref.read(DexPoolProviders.getPoolListRaw.future);
 
-    account.accountTokens = await appService.getFungiblesTokensList(
-      account.genesisAddress,
-      poolsListRaw,
-    );
-    await updateAccount();
+      return account.copyWith(
+        accountTokens: await appService.getFungiblesTokensList(
+          account.genesisAddress,
+          poolsListRaw,
+        ),
+      );
+    });
+    _logger.fine('RefreshAll - End Fungible Tokens refresh');
   }
 
   Future<void> updateRecentTransactions() async {
-    final account = await future;
-    if (account == null) {
-      return;
-    }
-    final session = ref.read(sessionNotifierProvider).loggedIn!;
-    final appService = ref.read(appServiceProvider);
+    _logger.fine('RefreshAll - Start recent transactions refresh');
+    await _update((account) async {
+      final session = ref.read(sessionNotifierProvider).loggedIn!;
+      final appService = ref.read(appServiceProvider);
 
-    account
-      ..recentTransactions = await appService.getAccountRecentTransactions(
-        account.genesisAddress,
-        account.name,
-        session.wallet.keychainSecuredInfos,
-        account.recentTransactions ?? [],
-      )
-      ..lastLoadingTransactionInputs = DateTime.now().millisecondsSinceEpoch ~/
-          Duration.millisecondsPerSecond;
-    await updateAccount();
+      return account.copyWith(
+        recentTransactions: await appService.getAccountRecentTransactions(
+          account.genesisAddress,
+          account.name,
+          session.wallet.keychainSecuredInfos,
+          account.recentTransactions ?? [],
+        ),
+        lastLoadingTransactionInputs: DateTime.now().millisecondsSinceEpoch ~/
+            Duration.millisecondsPerSecond,
+      );
+    });
+    _logger.fine('RefreshAll - End recent transactions refresh');
   }
 
   Future<void> addCustomTokenAddress(String tokenAddress) async {
-    final account = await future;
-    if (account == null) {
-      return;
-    }
-
     if (Address(address: tokenAddress).isValid() == false) return;
-    (account.customTokenAddressList ??= []).add(tokenAddress.toUpperCase());
-    await updateAccount();
+    await _update((account) async {
+      return account.copyWith(
+        customTokenAddressList: [
+          ...account.customTokenAddressList ?? [],
+          tokenAddress.toUpperCase(),
+        ],
+      );
+    });
   }
 
   Future<void> removeCustomTokenAddress(String tokenAddress) async {
-    final account = await future;
-    if (account == null) {
-      return;
-    }
-
     if (Address(address: tokenAddress).isValid() == false) return;
-    (account.customTokenAddressList ??= []).remove(tokenAddress.toUpperCase());
-    await updateAccount();
+    await _update((account) async {
+      final customTokenAddressList = account.customTokenAddressList;
+      if (customTokenAddressList == null) return account;
+
+      return account.copyWith(
+        customTokenAddressList: customTokenAddressList
+            .where(
+              (element) => element != tokenAddress.toUpperCase(),
+            )
+            .toList(),
+      );
+    });
   }
 
   Future<bool> checkCustomTokenAddress(String tokenAddress) async {
@@ -252,42 +250,44 @@ class AccountNotifier extends _$AccountNotifier {
   }
 
   Future<void> updateNFT() async {
-    final account = await future;
-    if (account == null) {
-      return;
-    }
-    final session = ref.read(sessionNotifierProvider).loggedIn!;
-    final tokenInformation = await ref.read(
-      NFTProviders.getNFTList(
-        account.genesisAddress,
-        account.name,
-        session.wallet.keychainSecuredInfos,
-      ).future,
+    _logger.fine('RefreshAll - Start NFT refresh');
+    await _update(
+      (account) async {
+        final session = ref.read(sessionNotifierProvider).loggedIn!;
+        final tokenInformation = await ref.read(
+          NFTProviders.getNFTList(
+            account.genesisAddress,
+            account.name,
+            session.wallet.keychainSecuredInfos,
+          ).future,
+        );
+
+        return account.copyWith(
+          accountNFT: tokenInformation.$1,
+          accountNFTCollections: tokenInformation.$2,
+        );
+      },
     );
-
-    account
-      ..accountNFT = tokenInformation.$1
-      ..accountNFTCollections = tokenInformation.$2;
-
-    await updateAccount();
+    _logger.fine('RefreshAll - End NFT refresh');
   }
 
   Future<void> clearRecentTransactionsFromCache() async {
-    final account = await future;
-    if (account == null) {
-      return;
-    }
-
-    account.recentTransactions = [];
-    await updateAccount();
+    await _update(
+      (account) => account.copyWith(recentTransactions: []),
+    );
   }
 
-  Future<void> updateAccount() async {
-    final account = await future;
-    if (account == null) {
-      return;
-    }
+  Future<void> _update(
+    FutureOr<Account> Function(Account) doUpdate,
+  ) async {
+    await update(
+      (account) async {
+        if (account == null) return null;
 
-    await AccountHiveDatasource.instance().updateAccount(account);
+        final newState = await doUpdate(account);
+        await AccountHiveDatasource.instance().updateAccount(newState);
+        return newState;
+      },
+    );
   }
 }
